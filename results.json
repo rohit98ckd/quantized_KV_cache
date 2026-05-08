@@ -1,0 +1,54 @@
+{
+  "device_info": {
+    "device": "cpu",
+    "name": "CPU (simulation mode \u2014 no GPU detected)",
+    "total_memory_gb": "N/A",
+    "sm_count": "N/A",
+    "cuda_version": "N/A"
+  },
+  "model": {
+    "preset": "small",
+    "n_layers": 12,
+    "n_heads": 12,
+    "head_dim": 64,
+    "d_model": 768
+  },
+  "results": [
+    {
+      "label": "BF16 (baseline)",
+      "seq_len": 256,
+      "batch": 1,
+      "elapsed_s": 4.168,
+      "ms_per_token": 16.279,
+      "tokens_per_sec": 61.4,
+      "cache_memory_mb": 9.81,
+      "eff_bandwidth_gbps": 0.3,
+      "mean_quant_err_k": 0.0,
+      "mean_quant_err_v": 0.0
+    },
+    {
+      "label": "INT8 (per-token dynamic)",
+      "seq_len": 256,
+      "batch": 1,
+      "elapsed_s": 4.869,
+      "ms_per_token": 19.018,
+      "tokens_per_sec": 52.6,
+      "cache_memory_mb": 5.21,
+      "eff_bandwidth_gbps": 0.14,
+      "mean_quant_err_k": 0.13562,
+      "mean_quant_err_v": 0.135863
+    },
+    {
+      "label": "FP8 e4m3 (simulated)",
+      "seq_len": 256,
+      "batch": 1,
+      "elapsed_s": 5.011,
+      "ms_per_token": 19.575,
+      "tokens_per_sec": 51.1,
+      "cache_memory_mb": 4.9,
+      "eff_bandwidth_gbps": 0.12,
+      "mean_quant_err_k": 17.611099,
+      "mean_quant_err_v": 17.85296
+    }
+  ]
+}

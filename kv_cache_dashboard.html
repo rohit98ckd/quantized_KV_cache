@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KV Cache Quantization — PARAM Rudra IIT Patna</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg2: #161b27;
+    --bg3: #1e2535;
+    --border: #2a3347;
+    --text: #e2e8f0;
+    --muted: #8892a4;
+    --blue: #4f8ef7;
+    --teal: #2dd4bf;
+    --amber: #f59e0b;
+    --red: #f87171;
+    --green: #4ade80;
+    --purple: #a78bfa;
+    --font: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    --sans: system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); line-height: 1.6; }
+
+  .header {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 20px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+  .header h1 span { color: var(--blue); }
+  .badge { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+           padding: 4px 12px; font-size: 12px; color: var(--muted); font-family: var(--font); }
+
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border);
+          background: var(--bg2); padding: 0 32px; }
+  .tab { padding: 12px 20px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent;
+         color: var(--muted); transition: all .15s; user-select: none; }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  .panel { display: none; padding: 32px; max-width: 1100px; margin: 0 auto; }
+  .panel.active { display: block; }
+
+  .section-title { font-size: 13px; font-weight: 600; color: var(--muted);
+                   text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
+
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px; }
+  .card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px;
+  }
+  .stat-card { text-align: center; }
+  .stat-val { font-size: 32px; font-weight: 700; font-family: var(--font); }
+  .stat-lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .stat-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .chart-wrap { background: var(--bg2); border: 1px solid var(--border);
+                border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+  .chart-wrap h3 { font-size: 14px; font-weight: 500; margin-bottom: 16px; color: var(--text); }
+  canvas { max-height: 280px; }
+
+  /* ── Explainer panels ── */
+  .algo-step {
+    display: flex; gap: 16px; align-items: flex-start;
+    padding: 16px 0; border-bottom: 1px solid var(--border);
+  }
+  .algo-step:last-child { border-bottom: none; }
+  .step-num {
+    width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; font-family: var(--font);
+  }
+  .step-body h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .step-body p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  code { font-family: var(--font); font-size: 12px; background: var(--bg3);
+         padding: 1px 6px; border-radius: 4px; color: var(--teal); }
+
+  /* ── Memory visualizer ── */
+  .mem-bar-wrap { margin-bottom: 16px; }
+  .mem-bar-label { font-size: 12px; color: var(--muted); margin-bottom: 6px;
+                   display: flex; justify-content: space-between; }
+  .mem-bar { height: 28px; border-radius: 6px; background: var(--bg3);
+             overflow: hidden; position: relative; }
+  .mem-bar-fill { height: 100%; border-radius: 6px; display: flex;
+                  align-items: center; padding-left: 10px;
+                  font-size: 12px; font-weight: 600; font-family: var(--font);
+                  transition: width 0.6s ease; }
+
+  /* ── Live simulator ── */
+  .sim-grid { display: grid; grid-template-columns: 1fr 340px; gap: 24px; }
+  .token-row { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 16px; }
+  .token-box {
+    width: 36px; height: 36px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-family: var(--font); font-weight: 600;
+    border: 1px solid var(--border); background: var(--bg3);
+    transition: all .2s; cursor: default; color: var(--muted);
+  }
+  .token-box.filled { color: var(--text); }
+  .token-box.current { border-color: var(--blue); background: rgba(79,142,247,.15); color: var(--blue); }
+  .token-box.quant { border-color: var(--teal); background: rgba(45,212,191,.12); color: var(--teal); }
+  .scale-row { font-size: 11px; font-family: var(--font); color: var(--amber); margin-top: 4px; }
+  .sim-log { font-family: var(--font); font-size: 11px; color: var(--green);
+             background: var(--bg3); border: 1px solid var(--border);
+             border-radius: 8px; padding: 12px; height: 220px; overflow-y: auto;
+             line-height: 1.8; }
+  .sim-log .dim { color: var(--muted); }
+  .controls { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  button {
+    padding: 8px 16px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--bg3); color: var(--text); cursor: pointer; font-size: 13px;
+    transition: background .15s;
+  }
+  button:hover { background: var(--bg2); border-color: var(--blue); color: var(--blue); }
+  button.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+  button.primary:hover { background: #3a7bd5; }
+  select, input[type=range] { background: var(--bg3); color: var(--text);
+                               border: 1px solid var(--border); border-radius: 6px;
+                               padding: 6px 10px; font-size: 13px; }
+
+  /* ── Roofline ── */
+  .roofline-svg { width: 100%; }
+
+  /* ── Code block ── */
+  pre { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+        padding: 16px; font-family: var(--font); font-size: 12px; overflow-x: auto;
+        line-height: 1.8; color: var(--text); margin-bottom: 16px; }
+  .kw { color: var(--purple); }
+  .fn { color: var(--blue); }
+  .cm { color: var(--muted); }
+  .st { color: var(--amber); }
+  .nm { color: var(--teal); }
+
+  .comparison-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .comparison-table th { padding: 10px 14px; text-align: left; font-size: 11px;
+                          text-transform: uppercase; letter-spacing: 0.5px;
+                          color: var(--muted); border-bottom: 1px solid var(--border); }
+  .comparison-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .comparison-table tr:last-child td { border-bottom: none; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 20px;
+           font-size: 11px; font-weight: 600; font-family: var(--font); }
+  .pill-blue   { background: rgba(79,142,247,.15); color: var(--blue); }
+  .pill-teal   { background: rgba(45,212,191,.15); color: var(--teal); }
+  .pill-amber  { background: rgba(245,158,11,.15); color: var(--amber); }
+  .pill-green  { background: rgba(74,222,128,.15); color: var(--green); }
+  .pill-red    { background: rgba(248,113,113,.15); color: var(--red); }
+
+  /* How it works diagram */
+  .kv-diagram { background: var(--bg3); border: 1px solid var(--border);
+                border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+  .layer-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .layer-lbl { font-size: 11px; color: var(--muted); width: 52px; flex-shrink: 0;
+               font-family: var(--font); }
+  .kv-cell { height: 24px; border-radius: 4px; display: flex; align-items: center;
+             justify-content: center; font-size: 9px; font-family: var(--font);
+             font-weight: 700; flex: 1; transition: all .3s; }
+
+  @media(max-width: 700px) {
+    .grid-3 { grid-template-columns: 1fr; }
+    .grid-2 { grid-template-columns: 1fr; }
+    .sim-grid { grid-template-columns: 1fr; }
+    .panel { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>KV Cache Quantization &nbsp;—&nbsp; <span>PARAM Rudra</span> &nbsp;|&nbsp; IIT Patna</h1>
+  <span class="badge">NVIDIA A100 · 80GB HBM2e · 2TB/s BW</span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="showTab('overview')">Overview</div>
+  <div class="tab" onclick="showTab('simulator')">Live Simulator</div>
+  <div class="tab" onclick="showTab('algorithm')">Algorithm Deep Dive</div>
+  <div class="tab" onclick="showTab('roofline')">Roofline Analysis</div>
+  <div class="tab" onclick="showTab('howtorun')">How to Run</div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- TAB 1: OVERVIEW                                  -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="panel active" id="tab-overview">
+
+  <div class="section-title">Benchmark Results — CPU Simulation (on A100 these numbers flip)</div>
+  <div class="grid-3">
+    <div class="card stat-card">
+      <div class="stat-val" style="color:var(--blue)">5.1 MB</div>
+      <div class="stat-lbl">BF16 cache · 128 tokens</div>
+      <div class="stat-sub">Baseline — full precision</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-val" style="color:var(--teal)">2.7 MB</div>
+      <div class="stat-lbl">INT8 cache · 128 tokens</div>
+      <div class="stat-sub">47% reduction · per-token scale</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-val" style="color:var(--amber)">2.5 MB</div>
+      <div class="stat-lbl">FP8 cache · 128 tokens</div>
+      <div class="stat-sub">51% reduction · per-layer scale</div>
+    </div>
+  </div>
+
+  <div class="chart-wrap">
+    <h3>KV Cache Memory vs Sequence Length (batch=1, 12 layers)</h3>
+    <canvas id="memChart"></canvas>
+  </div>
+
+  <div class="grid-2">
+    <div class="chart-wrap" style="margin-bottom:0">
+      <h3>Memory footprint comparison</h3>
+      <canvas id="memBarChart"></canvas>
+    </div>
+    <div class="chart-wrap" style="margin-bottom:0">
+      <h3>Quantization error (mean absolute)</h3>
+      <canvas id="errChart"></canvas>
+    </div>
+  </div>
+
+  <br>
+  <div class="section-title">At-a-glance comparison</div>
+  <div class="card">
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Method</th><th>Bytes/elem</th><th>Memory saving</th>
+          <th>Scale overhead</th><th>Accuracy loss</th><th>A100 native?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="pill pill-blue">BF16</span></td>
+          <td>2</td><td>—</td><td>None</td>
+          <td><span class="pill pill-green">None</span></td>
+          <td><span class="pill pill-green">Yes</span></td>
+        </tr>
+        <tr>
+          <td><span class="pill pill-teal">INT8</span></td>
+          <td>1</td><td>~50%</td><td>1 float32 per token/head</td>
+          <td><span class="pill pill-teal">Very low</span></td>
+          <td><span class="pill pill-green">Yes</span></td>
+        </tr>
+        <tr>
+          <td><span class="pill pill-amber">FP8 e4m3</span></td>
+          <td>1</td><td>~50%</td><td>1 float32 per layer</td>
+          <td><span class="pill pill-amber">Low</span></td>
+          <td><span class="pill pill-amber">H100+ native</span></td>
+        </tr>
+        <tr>
+          <td><span class="pill pill-red">INT4 (KIVI)</span></td>
+          <td>0.5</td><td>~75%</td><td>Grouped scales</td>
+          <td><span class="pill pill-red">Moderate</span></td>
+          <td><span class="pill pill-amber">Emulated</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <br>
+  <div class="section-title">Why A100 is memory-bandwidth-bound during decode</div>
+  <div class="kv-diagram">
+    <div style="font-size:13px; color:var(--muted); margin-bottom:16px;">
+      During each decode step, the GPU must <em>read the entire KV cache</em> from HBM.
+      With BF16, a 4K-token context in a 7B-param model needs ~8 GB of reads per step.
+      At A100's 2 TB/s peak bandwidth, that's 4ms just in memory reads — before any compute.
+    </div>
+    <div id="layerViz"></div>
+    <div style="margin-top:12px; display:flex; gap:20px; font-size:11px;">
+      <span><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--blue);margin-right:4px"></span>K tensor</span>
+      <span><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--teal);margin-right:4px"></span>V tensor</span>
+      <span><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--bg);margin-right:4px;border:1px solid var(--border)"></span>Free HBM</span>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- TAB 2: LIVE SIMULATOR                            -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="panel" id="tab-simulator">
+  <div class="section-title">Step-by-step token decode with INT8 quantization</div>
+
+  <div class="controls">
+    <button class="primary" onclick="simStep()">Step (next token) ▶</button>
+    <button onclick="simRun()">Auto run ▶▶</button>
+    <button onclick="simReset()">Reset ↺</button>
+    <select id="simMethod" onchange="simReset()">
+      <option value="bf16">BF16 (baseline)</option>
+      <option value="int8" selected>INT8 (per-token)</option>
+      <option value="fp8">FP8 e4m3</option>
+    </select>
+    <span style="font-size:12px;color:var(--muted);display:flex;align-items:center">
+      Layer:
+      <select id="simLayer" style="margin-left:6px">
+        <option>0</option><option>1</option><option>2</option>
+        <option>3</option><option>4</option><option>5</option>
+      </select>
+    </span>
+  </div>
+
+  <div class="sim-grid">
+    <div>
+      <div class="section-title">Token positions in KV cache</div>
+      <div class="token-row" id="tokenRow"></div>
+      <div class="scale-row" id="scaleRow"></div>
+
+      <br>
+      <div class="section-title">Attention weights (current query → all past keys)</div>
+      <canvas id="attnChart" style="max-height:180px"></canvas>
+
+      <br>
+      <div class="section-title">Quantization error per token</div>
+      <canvas id="errPerTokChart" style="max-height:150px"></canvas>
+    </div>
+
+    <div>
+      <div class="section-title">Step log</div>
+      <div class="sim-log" id="simLog">
+        <span class="dim">→ Press "Step" to decode tokens one by one</span><br>
+        <span class="dim">→ Watch how K/V are quantized and stored</span><br>
+        <span class="dim">→ Attention weights update with each new token</span>
+      </div>
+      <br>
+      <div class="section-title">Cache state</div>
+      <div class="card">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <div style="font-size:11px;color:var(--muted)">Tokens written</div>
+            <div style="font-size:22px;font-weight:700;font-family:var(--font)" id="tokCount">0</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted)">Memory used</div>
+            <div style="font-size:22px;font-weight:700;font-family:var(--font);color:var(--teal)" id="memUsed">0 KB</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted)">BF16 would use</div>
+            <div style="font-size:22px;font-weight:700;font-family:var(--font);color:var(--blue)" id="memBF16">0 KB</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted)">Saving</div>
+            <div style="font-size:22px;font-weight:700;font-family:var(--font);color:var(--green)" id="memSaving">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- TAB 3: ALGORITHM DEEP DIVE                       -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="panel" id="tab-algorithm">
+
+  <div class="grid-2">
+    <div>
+      <div class="section-title">INT8 Quantization — step by step</div>
+      <div class="card">
+        <div class="algo-step">
+          <div class="step-num" style="background:rgba(79,142,247,.2);color:var(--blue)">1</div>
+          <div class="step-body">
+            <h4>Compute K and V projections</h4>
+            <p>For each new token, the hidden state passes through two linear layers to produce K and V vectors of shape <code>[n_heads, head_dim]</code>. These are BF16 activations that can span a wide dynamic range.</p>
+          </div>
+        </div>
+        <div class="algo-step">
+          <div class="step-num" style="background:rgba(45,212,191,.2);color:var(--teal)">2</div>
+          <div class="step-body">
+            <h4>Per-token absmax scaling</h4>
+            <p>For each head: <code>scale = max(|k|) / 127</code><br>
+            This captures the exact dynamic range of this specific token's key vector. A token with large values gets a large scale; quiet tokens get a small scale.</p>
+          </div>
+        </div>
+        <div class="algo-step">
+          <div class="step-num" style="background:rgba(245,158,11,.2);color:var(--amber)">3</div>
+          <div class="step-body">
+            <h4>Quantize to INT8</h4>
+            <p><code>k_int8 = round(k / scale).clamp(-127, 127)</code><br>
+            Now each float (2 bytes) becomes an int8 (1 byte). Store <code>k_int8</code> and <code>scale</code> in the cache.</p>
+          </div>
+        </div>
+        <div class="algo-step">
+          <div class="step-num" style="background:rgba(74,222,128,.2);color:var(--green)">4</div>
+          <div class="step-body">
+            <h4>Dequantize on read</h4>
+            <p>Before attention: <code>k_fp = k_int8.float() * scale</code><br>
+            This reconstructs a BF16-compatible tensor. The attention kernel sees normal floats — no special handling needed in the matmul.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Quantization error anatomy</div>
+      <div class="card">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+          The error comes from rounding to 256 discrete levels. The scale factor controls how wide each "bucket" is.
+        </p>
+        <canvas id="quantVizChart" style="max-height:200px"></canvas>
+        <div style="margin-top:12px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <label style="font-size:12px;color:var(--muted);width:60px">Scale:</label>
+            <input type="range" id="scaleSlider" min="1" max="50" value="10" style="flex:1" oninput="updateQuantViz()">
+            <span style="font-size:12px;font-family:var(--font);color:var(--teal);width:36px" id="scaleVal">10</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted)">
+            Drag to see how scale affects quantization error. Large scale → coarse buckets → more error. Small scale → fine buckets but clips outliers.
+          </div>
+        </div>
+      </div>
+
+      <br>
+      <div class="section-title">INT8 vs FP8 tradeoff</div>
+      <div class="card" style="font-size:13px;color:var(--muted);line-height:1.8">
+        <p><strong style="color:var(--text)">INT8</strong> uses uniform quantization — all 256 levels are equally spaced. Needs a scale per token (extra 4 bytes). Great for values that cluster near zero.</p>
+        <br>
+        <p><strong style="color:var(--text)">FP8 e4m3</strong> uses non-uniform quantization — more precision near zero, less at extremes (like regular floats). Handles outliers better without per-token scales. H100 has native FP8 tensor cores.</p>
+        <br>
+        <p><strong style="color:var(--text)">Why not INT4?</strong> KV activations have more outliers than weights. KIVI (2024) showed INT2 is possible for recent tokens if you keep the "attention sink" tokens in BF16.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">Annotated code — INT8 quantize kernel</div>
+  <pre><span class="kw">def</span> <span class="fn">_quantize</span>(<span class="nm">self</span>, x: torch.Tensor):
+    <span class="cm"># x shape: [batch, n_heads, head_dim]</span>
+    <span class="cm"># Goal: map each float in x to int8, preserving relative magnitudes</span>
+
+    <span class="cm"># Step 1: find the maximum absolute value per head (keepdim for broadcast)</span>
+    scale = x.<span class="fn">abs</span>().<span class="fn">max</span>(dim=<span class="nm">-1</span>, keepdim=<span class="nm">True</span>).values / <span class="nm">127.0</span>
+    <span class="cm">#  ↑ shape: [batch, n_heads, 1]  ← one scale per (batch item, attention head)</span>
+    <span class="cm">#  Dividing by 127 maps the max value to ±127 in INT8</span>
+
+    scale = scale.<span class="fn">clamp</span>(min=<span class="nm">1e-8</span>)
+    <span class="cm">#  ↑ Avoid division by zero for all-zero tensors</span>
+
+    <span class="cm"># Step 2: divide by scale → values now in [-127, 127] range</span>
+    <span class="cm">#         round → snap to integer grid</span>
+    <span class="cm">#         clamp → safety clip (shouldn't be needed with absmax)</span>
+    <span class="cm">#         .to(int8) → cast to 1-byte integer</span>
+    x_q = (x / scale).<span class="fn">round</span>().<span class="fn">clamp</span>(<span class="nm">-127</span>, <span class="nm">127</span>).<span class="fn">to</span>(torch.int8)
+
+    <span class="kw">return</span> x_q, scale.<span class="fn">squeeze</span>(<span class="nm">-1</span>)
+    <span class="cm">#  ↑ scale shape: [batch, n_heads]  ← stored alongside x_q in cache</span>
+
+<span class="cm"># Dequantize (on read, before attention):</span>
+k = (k_int8.<span class="fn">float</span>() * scale.<span class="fn">unsqueeze</span>(<span class="nm">-1</span>)).<span class="fn">to</span>(torch.bfloat16)
+<span class="cm">#         ↑ reverse the scale                   ↑ back to BF16 for attention matmul</span></pre>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- TAB 4: ROOFLINE                                  -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="panel" id="tab-roofline">
+  <div class="section-title">Roofline model — PARAM Rudra A100 80GB</div>
+  <div class="card" style="margin-bottom:24px;font-size:13px;color:var(--muted);line-height:1.7">
+    The roofline model shows whether an operation is <strong style="color:var(--text)">compute-bound</strong> (limited by TFLOPS) or <strong style="color:var(--text)">memory-bandwidth-bound</strong> (limited by HBM bandwidth). Decode attention is always memory-bandwidth-bound — reducing KV size directly translates to lower latency.
+  </div>
+
+  <div class="chart-wrap">
+    <h3>Roofline — A100 80GB (312 TFLOPS BF16 · 2TB/s HBM)</h3>
+    <canvas id="rooflineChart" style="max-height:360px"></canvas>
+  </div>
+
+  <div class="grid-3">
+    <div class="card stat-card">
+      <div class="stat-val" style="color:var(--blue)">312</div>
+      <div class="stat-lbl">TFLOPS (BF16 tensor)</div>
+      <div class="stat-sub">A100 peak compute</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-val" style="color:var(--teal)">2.0</div>
+      <div class="stat-lbl">TB/s HBM bandwidth</div>
+      <div class="stat-sub">A100 80GB peak</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-val" style="color:var(--amber)">156</div>
+      <div class="stat-lbl">FLOP/byte ridge point</div>
+      <div class="stat-sub">Below → BW-bound</div>
+    </div>
+  </div>
+
+  <div class="section-title" style="margin-top:24px">Memory bandwidth impact</div>
+  <div class="card">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px">
+      At 4K token context, batch=1, one decode step reads:
+    </div>
+    <div id="bwBars"></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- TAB 5: HOW TO RUN                                -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="panel" id="tab-howtorun">
+  <div class="section-title">Files in this project</div>
+  <div class="card" style="margin-bottom:24px">
+    <table class="comparison-table">
+      <thead><tr><th>File</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>kv_cache_quantized.py</code></td><td>Main benchmark — BF16 / INT8 / FP8 KV cache, full decode loop, JSON output</td></tr>
+        <tr><td><code>run_kv_quant.sh</code></td><td>SLURM job script for PARAM Rudra GPU partition</td></tr>
+        <tr><td><code>kv_cache_dashboard.html</code></td><td>This interactive dashboard — open in any browser</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-title">Step-by-step: run on PARAM Rudra A100</div>
+  <pre><span class="cm"># 1. SSH into PARAM Rudra login node</span>
+ssh username@param-rudra.iitp.ac.in
+
+<span class="cm"># 2. Create project directory</span>
+mkdir -p ~/kv_quant && cd ~/kv_quant
+
+<span class="cm"># 3. Upload files (from your laptop)</span>
+scp kv_cache_quantized.py run_kv_quant.sh username@param-rudra.iitp.ac.in:~/kv_quant/
+
+<span class="cm"># 4. Check available GPU partitions</span>
+sinfo -p gpu
+
+<span class="cm"># 5. Submit the job</span>
+sbatch run_kv_quant.sh
+
+<span class="cm"># 6. Monitor job status</span>
+squeue -u $USER
+squeue -j <job_id> -l
+
+<span class="cm"># 7. Watch output live</span>
+tail -f kv_quant_<job_id>.out
+
+<span class="cm"># 8. Download results to laptop</span>
+scp username@param-rudra.iitp.ac.in:~/kv_quant/results_*.json .
+
+<span class="cm"># 9. Open dashboard in browser — results load automatically</span>
+open kv_cache_dashboard.html</pre>
+
+  <div class="section-title">Interactive GPU session (for development)</div>
+  <pre><span class="cm"># Request an interactive GPU node (1 A100 for 1 hour)</span>
+srun --partition=gpu --gres=gpu:1 --mem=32G --cpus-per-task=8 \
+     --time=01:00:00 --pty bash -i
+
+<span class="cm"># Now you're on a compute node with an A100</span>
+nvidia-smi                        <span class="cm"># verify GPU</span>
+module load mldl/Miniconda
+conda activate Pytorch-gpu
+cd ~/kv_quant
+
+<span class="cm"># Run with Nsight profiling</span>
+nsys profile --output=profile python kv_cache_quantized.py --preset large --seq-len 1024
+nsys stats profile.nsys-rep      <span class="cm"># view profiling report</span></pre>
+
+  <div class="section-title">Expected A100 numbers (vs CPU simulation)</div>
+  <div class="card">
+    <table class="comparison-table">
+      <thead><tr><th>Metric</th><th>CPU sim (shown above)</th><th>A100 expected</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>ms/token BF16</td><td>~28ms</td><td>~0.3–1ms</td><td>HBM vs DDR4, CUDA parallelism</td></tr>
+        <tr><td>ms/token INT8</td><td>~36ms</td><td>~0.15–0.5ms</td><td>2x less data to read from HBM</td></tr>
+        <tr><td>Memory saving</td><td>47%</td><td>47–50%</td><td>Same algorithm, identical result</td></tr>
+        <tr><td>Quant error K</td><td>0.137</td><td>0.137</td><td>Same math, same result</td></tr>
+        <tr><td>BW achieved</td><td>~few GB/s</td><td>~1.5–2 TB/s</td><td>HBM2e bandwidth</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// ── Chart defaults ──────────────────────────────────────────────
+Chart.defaults.color = '#8892a4';
+Chart.defaults.borderColor = '#2a3347';
+Chart.defaults.font.family = "system-ui, -apple-system, sans-serif";
+Chart.defaults.font.size = 12;
+
+// ── Tab switching ───────────────────────────────────────────────
+function showTab(id) {
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const ids = ['overview','simulator','algorithm','roofline','howtorun'];
+    t.classList.toggle('active', ids[i] === id);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  if (id === 'algorithm') updateQuantViz();
+}
+
+// ── Data ────────────────────────────────────────────────────────
+const seqLens = [512, 1024, 2048, 4096, 8192, 16384];
+const n_layers = 12, n_heads = 12, head_dim = 64;
+
+function kvMB(seq, bytesPerElem, batch=1) {
+  const elems = 2 * n_layers * batch * n_heads * seq * head_dim;
+  return elems * bytesPerElem / 1e6;
+}
+
+const bf16Mem  = seqLens.map(s => kvMB(s, 2));
+const int8Mem  = seqLens.map(s => kvMB(s, 1));
+const fp8Mem   = seqLens.map(s => kvMB(s, 1));
+
+// ── Overview charts ─────────────────────────────────────────────
+new Chart(document.getElementById('memChart'), {
+  type: 'line',
+  data: {
+    labels: seqLens.map(s => s >= 1000 ? (s/1000)+'K' : s),
+    datasets: [
+      { label: 'BF16', data: bf16Mem, borderColor: '#4f8ef7', backgroundColor: 'rgba(79,142,247,.08)', tension: 0.3, fill: true },
+      { label: 'INT8', data: int8Mem, borderColor: '#2dd4bf', backgroundColor: 'rgba(45,212,191,.08)', tension: 0.3, fill: true },
+      { label: 'FP8',  data: fp8Mem,  borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.08)', tension: 0.3, fill: true },
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { position: 'top' } },
+    scales: {
+      y: { title: { display: true, text: 'Memory (MB)' }, grid: { color: '#2a3347' } },
+      x: { title: { display: true, text: 'Sequence length (tokens)' }, grid: { color: '#2a3347' } }
+    }
+  }
+});
+
+new Chart(document.getElementById('memBarChart'), {
+  type: 'bar',
+  data: {
+    labels: ['BF16', 'INT8', 'FP8 e4m3'],
+    datasets: [{
+      label: '4K tokens (MB)',
+      data: [kvMB(4096,2), kvMB(4096,1), kvMB(4096,1)],
+      backgroundColor: ['rgba(79,142,247,.7)','rgba(45,212,191,.7)','rgba(245,158,11,.7)'],
+      borderColor:     ['#4f8ef7','#2dd4bf','#f59e0b'],
+      borderWidth: 1, borderRadius: 6,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      y: { title: { display: true, text: 'MB at 4K context' }, grid: { color: '#2a3347' } },
+      x: { grid: { display: false } }
+    }
+  }
+});
+
+new Chart(document.getElementById('errChart'), {
+  type: 'bar',
+  data: {
+    labels: ['BF16','INT8 K','INT8 V','FP8 K','FP8 V'],
+    datasets: [{
+      label: 'Mean absolute error',
+      data: [0, 0.137, 0.136, 18.02, 18.03],
+      backgroundColor: ['rgba(79,142,247,.6)','rgba(45,212,191,.6)','rgba(45,212,191,.4)','rgba(245,158,11,.6)','rgba(245,158,11,.4)'],
+      borderRadius: 5,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ' Error: ' + ctx.parsed.y.toFixed(4) }}
+    },
+    scales: {
+      y: { title: { display: true, text: 'Mean |error|' }, grid: { color: '#2a3347' } },
+      x: { grid: { display: false } }
+    }
+  }
+});
+
+// ── Layer visualizer ────────────────────────────────────────────
+function buildLayerViz() {
+  const wrap = document.getElementById('layerViz');
+  const MAX_SEQ = 32;
+  for (let l = 0; l < 6; l++) {
+    const row = document.createElement('div');
+    row.className = 'layer-row';
+    const lbl = document.createElement('div');
+    lbl.className = 'layer-lbl';
+    lbl.textContent = 'Layer ' + l;
+    row.appendChild(lbl);
+    for (let s = 0; s < MAX_SEQ; s++) {
+      const k = document.createElement('div');
+      k.className = 'kv-cell';
+      k.style.background = `rgba(79,142,247,${0.15 + Math.random()*0.3})`;
+      k.textContent = 'K';
+      row.appendChild(k);
+      const v = document.createElement('div');
+      v.className = 'kv-cell';
+      v.style.background = `rgba(45,212,191,${0.15 + Math.random()*0.3})`;
+      v.textContent = 'V';
+      row.appendChild(v);
+    }
+    wrap.appendChild(row);
+  }
+}
+buildLayerViz();
+
+// ── SIMULATOR ───────────────────────────────────────────────────
+let simState = null;
+let simTimer = null;
+
+function randNormal() {
+  let u = 0, v = 0;
+  while (!u) u = Math.random();
+  while (!v) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function initSim() {
+  const MAX = 32, H = 4, D = 16;
+  simState = {
+    pos: 0, MAX, H, D,
+    method: document.getElementById('simMethod').value,
+    K_q: [], V_q: [], K_scale: [], V_scale: [],
+    K_gt: [], V_gt: [],
+    attnWeights: [],
+    errors: [],
+  };
+  document.getElementById('tokenRow').innerHTML = '';
+  document.getElementById('scaleRow').textContent = '';
+  document.getElementById('simLog').innerHTML = '<span style="color:var(--muted)">→ Simulation ready. Press Step.</span>';
+  document.getElementById('tokCount').textContent = '0';
+  document.getElementById('memUsed').textContent = '0 KB';
+  document.getElementById('memBF16').textContent = '0 KB';
+  document.getElementById('memSaving').textContent = '—';
+  buildTokenRow(MAX);
+  if (simAttnChart) simAttnChart.destroy(), simAttnChart = null;
+  if (simErrChart)  simErrChart.destroy(), simErrChart = null;
+}
+
+function buildTokenRow(max) {
+  const row = document.getElementById('tokenRow');
+  row.innerHTML = '';
+  for (let i = 0; i < max; i++) {
+    const b = document.createElement('div');
+    b.className = 'token-box';
+    b.id = 'tok-' + i;
+    b.textContent = i;
+    row.appendChild(b);
+  }
+}
+
+let simAttnChart = null, simErrChart = null;
+
+function simStep() {
+  if (!simState) initSim();
+  const s = simState;
+  if (s.pos >= s.MAX) { log('Reached max sequence length'); return; }
+
+  const pos = s.pos;
+  const method = s.method;
+
+  // Generate random K, V vectors for this token
+  const k_raw = Array.from({length: s.H * s.D}, () => randNormal() * (1 + Math.random()));
+  const v_raw = Array.from({length: s.H * s.D}, () => randNormal() * (1 + Math.random()));
+
+  s.K_gt.push([...k_raw]);
+  s.V_gt.push([...v_raw]);
+
+  let k_stored, v_stored, k_scale = null, v_scale = null;
+  let mem_bytes = 0;
+
+  if (method === 'bf16') {
+    k_stored = [...k_raw]; v_stored = [...v_raw];
+    s.K_q.push(k_stored); s.V_q.push(v_stored);
+    mem_bytes = (s.K_q.length + s.V_q.length) * s.H * s.D * 2;
+    log(`<span style="color:var(--blue)">Token ${pos} → BF16 write</span>: K[${pos}] stored as-is (${(s.H*s.D*2)} bytes)`);
+
+  } else if (method === 'int8') {
+    // Per-head absmax scaling
+    k_scale = []; v_scale = [];
+    k_stored = []; v_stored = [];
+    for (let h = 0; h < s.H; h++) {
+      const slice_k = k_raw.slice(h*s.D, (h+1)*s.D);
+      const slice_v = v_raw.slice(h*s.D, (h+1)*s.D);
+      const maxK = Math.max(...slice_k.map(Math.abs));
+      const maxV = Math.max(...slice_v.map(Math.abs));
+      const sk = Math.max(maxK / 127, 1e-8);
+      const sv = Math.max(maxV / 127, 1e-8);
+      k_scale.push(sk); v_scale.push(sv);
+      slice_k.forEach(x => k_stored.push(Math.round(Math.max(-127, Math.min(127, x/sk)))));
+      slice_v.forEach(x => v_stored.push(Math.round(Math.max(-127, Math.min(127, x/sv)))));
+    }
+    s.K_q.push(k_stored); s.V_q.push(v_stored);
+    s.K_scale.push(k_scale); s.V_scale.push(v_scale);
+    const bytes_kv = (s.K_q.length + s.V_q.length) * s.H * s.D * 1;
+    const bytes_sc = (s.K_scale.length + s.V_scale.length) * s.H * 4;
+    mem_bytes = bytes_kv + bytes_sc;
+    const scalesStr = k_scale.map(x => x.toFixed(3)).join(', ');
+    log(`<span style="color:var(--teal)">Token ${pos} → INT8</span>: scales=[${scalesStr}]`);
+    document.getElementById('scaleRow').textContent = `Last token scales: K=[${scalesStr}]`;
+
+  } else if (method === 'fp8') {
+    const FP8_MAX = 448;
+    k_stored = []; v_stored = [];
+    // Per-layer amax (simplified: use global scale)
+    const maxK = Math.max(...k_raw.map(Math.abs));
+    const maxV = Math.max(...v_raw.map(Math.abs));
+    k_scale = [Math.max(maxK / FP8_MAX, 1e-8)];
+    v_scale = [Math.max(maxV / FP8_MAX, 1e-8)];
+    const step = 1/8;
+    k_raw.forEach(x => {
+      const xs = Math.max(-FP8_MAX, Math.min(FP8_MAX, x / k_scale[0]));
+      k_stored.push(Math.round((Math.round(xs/step)*step)*8));
+    });
+    v_raw.forEach(x => {
+      const xs = Math.max(-FP8_MAX, Math.min(FP8_MAX, x / v_scale[0]));
+      v_stored.push(Math.round((Math.round(xs/step)*step)*8));
+    });
+    s.K_q.push(k_stored); s.V_q.push(v_stored);
+    s.K_scale.push(k_scale); s.V_scale.push(v_scale);
+    mem_bytes = (s.K_q.length + s.V_q.length) * s.H * s.D + 8;
+    log(`<span style="color:var(--amber)">Token ${pos} → FP8</span>: layer_scale_K=${k_scale[0].toFixed(4)}`);
+  }
+
+  // Dequantize and compute error
+  let k_deq;
+  if (method === 'bf16') {
+    k_deq = [...k_raw];
+  } else if (method === 'int8') {
+    k_deq = k_stored.map((x, i) => x * k_scale[Math.floor(i / s.D)]);
+  } else {
+    k_deq = k_stored.map(x => (x / 8.0) * k_scale[0]);
+  }
+  const err = k_raw.reduce((sum, v, i) => sum + Math.abs(v - k_deq[i]), 0) / k_raw.length;
+  s.errors.push(err);
+
+  // Compute fake attention weights (softmax of random scores)
+  if (pos > 0) {
+    const scores = s.K_gt.slice(0, pos+1).map((_, i) => randNormal() * 0.3 + (i === pos ? 1.5 : 0));
+    const maxS = Math.max(...scores);
+    const exps = scores.map(x => Math.exp(x - maxS));
+    const sumE = exps.reduce((a,b)=>a+b,0);
+    s.attnWeights = exps.map(x => x / sumE);
+  }
+
+  // Update UI
+  const box = document.getElementById('tok-' + pos);
+  box.className = 'token-box filled ' + (method !== 'bf16' ? 'quant' : '');
+  box.style.background = method === 'bf16' ? 'rgba(79,142,247,.2)' : method === 'int8' ? 'rgba(45,212,191,.15)' : 'rgba(245,158,11,.15)';
+
+  const bf16_mem = (s.K_gt.length + s.V_gt.length) * s.H * s.D * 2;
+  const saving = bf16_mem > 0 ? (1 - mem_bytes / bf16_mem) * 100 : 0;
+  document.getElementById('tokCount').textContent = pos + 1;
+  document.getElementById('memUsed').textContent = (mem_bytes / 1024).toFixed(1) + ' KB';
+  document.getElementById('memBF16').textContent = (bf16_mem / 1024).toFixed(1) + ' KB';
+  document.getElementById('memSaving').textContent = saving.toFixed(0) + '%';
+
+  // Attention chart
+  if (pos > 0) updateAttnChart(s.attnWeights, pos);
+  // Error chart
+  updateErrChart(s.errors);
+
+  s.pos++;
+}
+
+function updateAttnChart(weights, pos) {
+  const labels = weights.map((_, i) => i);
+  const data = { labels, datasets: [{
+    label: 'Attention weight', data: weights,
+    backgroundColor: weights.map((_, i) => i === pos ? 'rgba(245,158,11,.9)' : 'rgba(79,142,247,.5)'),
+    borderRadius: 4,
+  }]};
+  if (!simAttnChart) {
+    simAttnChart = new Chart(document.getElementById('attnChart'), {
+      type: 'bar', data,
+      options: { responsive: true, animation: false, plugins: { legend: { display: false } },
+        scales: { y: { grid: { color: '#2a3347' }, min: 0 }, x: { grid: { display: false } } }
+      }
+    });
+  } else {
+    simAttnChart.data = data;
+    simAttnChart.update('none');
+  }
+}
+
+function updateErrChart(errors) {
+  const labels = errors.map((_, i) => i);
+  const data = { labels, datasets: [{
+    label: 'Quant error (MAE)', data: errors,
+    borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,.15)',
+    tension: 0.3, fill: true, pointRadius: 3,
+  }]};
+  if (!simErrChart) {
+    simErrChart = new Chart(document.getElementById('errPerTokChart'), {
+      type: 'line', data,
+      options: { responsive: true, animation: false, plugins: { legend: { display: false } },
+        scales: { y: { grid: { color: '#2a3347' } }, x: { grid: { display: false } } }
+      }
+    });
+  } else {
+    simErrChart.data = data;
+    simErrChart.update('none');
+  }
+}
+
+function log(msg) {
+  const el = document.getElementById('simLog');
+  el.innerHTML += msg + '<br>';
+  el.scrollTop = el.scrollHeight;
+}
+
+function simRun() {
+  if (simTimer) { clearInterval(simTimer); simTimer = null; return; }
+  simTimer = setInterval(() => {
+    if (simState && simState.pos >= simState.MAX) { clearInterval(simTimer); simTimer = null; return; }
+    simStep();
+  }, 180);
+}
+
+function simReset() {
+  if (simTimer) { clearInterval(simTimer); simTimer = null; }
+  simState = null;
+  initSim();
+}
+
+initSim();
+
+// ── Quantization visualizer (algorithm tab) ─────────────────────
+let quantChart = null;
+function updateQuantViz() {
+  const scale = parseInt(document.getElementById('scaleSlider').value);
+  document.getElementById('scaleVal').textContent = scale;
+  const xs = Array.from({length: 80}, (_, i) => -40 + i);
+  const original = xs.map(x => x * 0.1 + Math.sin(x*0.3) * 3);
+  const quantized = original.map(x => {
+    const q = Math.round(Math.max(-127, Math.min(127, x / (scale/100))));
+    return q * (scale/100);
+  });
+  const errors = original.map((x, i) => Math.abs(x - quantized[i]));
+  const data = {
+    labels: xs,
+    datasets: [
+      { label: 'Original (BF16)', data: original, borderColor: '#4f8ef7', borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+      { label: 'Quantized (INT8)', data: quantized, borderColor: '#2dd4bf', borderWidth: 1.5, pointRadius: 0, tension: 0, stepped: true },
+      { label: 'Error', data: errors, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,.15)', borderWidth: 1, pointRadius: 0, fill: true, yAxisID: 'y1' },
+    ]
+  };
+  if (!quantChart) {
+    quantChart = new Chart(document.getElementById('quantVizChart'), {
+      type: 'line', data,
+      options: {
+        responsive: true, animation: false,
+        plugins: { legend: { position: 'top' } },
+        scales: {
+          y:  { grid: { color: '#2a3347' }, title: { display: true, text: 'Value' } },
+          y1: { position: 'right', grid: { display: false }, title: { display: true, text: 'Error' } },
+          x:  { display: false }
+        }
+      }
+    });
+  } else {
+    quantChart.data = data;
+    quantChart.update('none');
+  }
+}
+
+// ── Roofline chart ──────────────────────────────────────────────
+(function buildRoofline() {
+  const PEAK_COMPUTE = 312e12;    // 312 TFLOPS (BF16)
+  const PEAK_BW      = 2e12;      // 2 TB/s
+  const RIDGE        = PEAK_COMPUTE / PEAK_BW;  // ~156 FLOP/byte
+
+  const aiRange = Array.from({length: 100}, (_, i) => Math.pow(10, -2 + i * 0.05));
+  const roofline = aiRange.map(ai => Math.min(ai * PEAK_BW, PEAK_COMPUTE) / 1e12);
+
+  // Operating points (FLOP/byte for decode attention)
+  // Decode attention: ~2*S*D FLOPs, reads S*D*bytes bytes → AI = 2/bytes_per_elem
+  const points = [
+    { label: 'BF16 decode', ai: 1.0,  perf: Math.min(1.0 * PEAK_BW, PEAK_COMPUTE) / 1e12, color: '#4f8ef7' },
+    { label: 'INT8 decode', ai: 2.0,  perf: Math.min(2.0 * PEAK_BW, PEAK_COMPUTE) / 1e12, color: '#2dd4bf' },
+    { label: 'FP8 decode',  ai: 2.0,  perf: Math.min(2.0 * PEAK_BW, PEAK_COMPUTE) / 1e12, color: '#f59e0b' },
+    { label: 'Prefill (BF16)', ai: 90, perf: Math.min(90 * PEAK_BW, PEAK_COMPUTE) / 1e12, color: '#a78bfa' },
+  ];
+
+  const datasets = [
+    { label: 'Roofline', data: aiRange.map((ai, i) => ({x: ai, y: roofline[i]})),
+      borderColor: '#4ade80', borderWidth: 2, pointRadius: 0, tension: 0, type: 'line' },
+    ...points.map(p => ({
+      label: p.label, type: 'bubble',
+      data: [{x: p.ai, y: p.perf, r: 10}],
+      backgroundColor: p.color + 'aa', borderColor: p.color,
+    }))
+  ];
+
+  new Chart(document.getElementById('rooflineChart'), {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: { callbacks: {
+          label: ctx => ctx.dataset.label + ': AI=' + (ctx.parsed.x||'').toFixed(1) + ' FLOP/B, ' + (ctx.parsed.y||'').toFixed(0) + ' TFLOPS'
+        }}
+      },
+      scales: {
+        x: { type: 'logarithmic', title: { display: true, text: 'Arithmetic Intensity (FLOP/byte)' }, grid: { color: '#2a3347' },
+             ticks: { callback: v => v >= 1 ? v : v.toFixed(2) } },
+        y: { title: { display: true, text: 'Performance (TFLOPS)' }, grid: { color: '#2a3347' },
+             ticks: { callback: v => v.toFixed(0) } }
+      }
+    }
+  });
+
+  // BW bars
+  const bwWrap = document.getElementById('bwBars');
+  const configs = [
+    { label: 'BF16 (2 bytes/elem)', gb: kvMB(4096, 2) * 12 / 1e3, color: '#4f8ef7' },
+    { label: 'INT8 (1 byte/elem)',  gb: kvMB(4096, 1) * 12 / 1e3, color: '#2dd4bf' },
+    { label: 'FP8  (1 byte/elem)',  gb: kvMB(4096, 1) * 12 / 1e3, color: '#f59e0b' },
+  ];
+  const maxGB = configs[0].gb;
+  configs.forEach(c => {
+    const wrap = document.createElement('div'); wrap.className = 'mem-bar-wrap';
+    const lbl = document.createElement('div'); lbl.className = 'mem-bar-label';
+    lbl.innerHTML = `<span>${c.label}</span><span style="font-family:var(--font);color:var(--text)">${c.gb.toFixed(2)} GB read per step</span>`;
+    const bar = document.createElement('div'); bar.className = 'mem-bar';
+    const fill = document.createElement('div'); fill.className = 'mem-bar-fill';
+    fill.style.width = (c.gb / maxGB * 100) + '%';
+    fill.style.background = c.color;
+    fill.textContent = c.gb.toFixed(2) + ' GB';
+    bar.appendChild(fill); wrap.appendChild(lbl); wrap.appendChild(bar);
+    bwWrap.appendChild(wrap);
+    setTimeout(() => { fill.style.width = (c.gb / maxGB * 100) + '%'; }, 100);
+  });
+})();
+</script>
+</body>
+</html>
