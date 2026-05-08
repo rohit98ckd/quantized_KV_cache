@@ -1,6 +1,6 @@
 # Quantized KV Cache for LLM Inference
 
-A hands-on benchmark and visualization of **KV cache quantization** (BF16 / INT8 / FP8) for transformer decoder inference, designed to run on the **PARAM Rudra** supercomputer at **IIT Patna** (NVIDIA A100 80GB HBM2e) with a transparent CPU fallback for local development.
+A hands-on benchmark and visualization of **KV cache quantization** (BF16 / INT8 / FP8) for transformer decoder inference, designed to run on the ***PARAM Rudra supercomputer at IIT Patna*** (NVIDIA A100 80GB HBM2e) with a transparent CPU fallback for local development.
 
 The project shows, end-to-end, why decoding LLMs is memory-bandwidth-bound, how dynamic quantization of the KV cache halves HBM traffic, and what accuracy tradeoff each scheme makes.
 
